@@ -1,0 +1,150 @@
+#include <windows.h>
+#include <stdio.h>
+#include <conio.h>
+
+#define DEFAULT_COLOR 2        // Green  (low usage)
+#define HIGH_USAGE_COLOR 5     // Purple  (high usage)
+#define WARNING_COLOR 13       // Pink  (critical usage)
+
+// User preference variables
+int enableBeep = 0;
+int cpuThreshold = 80;
+int ramThreshold = 90;
+int showCPU = 0;
+int showRAM = 0;
+
+// Function to set color
+void setColor(int color) {
+    HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+    SetConsoleTextAttribute(hConsole, color);
+}
+
+// Function to display text centered in the console
+void displayCenteredText(const char* text) {
+    CONSOLE_SCREEN_BUFFER_INFO csbi;
+    int columns;
+
+    GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE), &csbi);
+    columns = csbi.srWindow.Right - csbi.srWindow.Left + 1;
+
+    int padding = (columns - strlen(text)) / 2;
+    for (int i = 0; i < padding; i++) printf(" ");
+    printf("%s\n", text);
+}
+
+// Function to get RAM usage
+int getRAMUsage() {
+    MEMORYSTATUSEX memStatus;
+    memStatus.dwLength = sizeof(memStatus);
+    GlobalMemoryStatusEx(&memStatus);
+
+    DWORDLONG totalPhysMem = memStatus.ullTotalPhys;
+    DWORDLONG physMemUsed = totalPhysMem - memStatus.ullAvailPhys;
+    return (int)((physMemUsed * 100) / totalPhysMem);
+}
+
+// Function to get CPU usage
+int getCPUUsage() {
+    FILETIME idleTime, kernelTime, userTime;
+    GetSystemTimes(&idleTime, &kernelTime, &userTime);
+    
+    static ULONGLONG prevIdleTime = 0, prevKernelTime = 0, prevUserTime = 0;
+    ULONGLONG idleDiff = (*(ULONGLONG*)&idleTime) - prevIdleTime;
+    ULONGLONG kernelDiff = (*(ULONGLONG*)&kernelTime) - prevKernelTime;
+    ULONGLONG userDiff = (*(ULONGLONG*)&userTime) - prevUserTime;
+    
+    prevIdleTime = *(ULONGLONG*)&idleTime;
+    prevKernelTime = *(ULONGLONG*)&kernelTime;
+    prevUserTime = *(ULONGLONG*)&userTime;
+
+    return (int)(100.0 - (idleDiff * 100.0 / (kernelDiff + userDiff)));
+}
+
+// Function to alert if threshold is exceeded
+void alertIfThresholdExceeded(int cpuUsage, int ramUsage) {
+    if (enableBeep) {
+        if (showCPU && cpuUsage > cpuThreshold) {
+            Beep(750, 500);
+        }
+        if (showRAM && ramUsage > ramThreshold) {
+            Beep(1000, 500);
+        }
+    }
+}
+
+// Function to check and display system performance
+void checkSystemPerformance() {
+    int cpuUsage = getCPUUsage();
+    int ramUsage = getRAMUsage();
+    char output[100] = "";
+
+    // Set color for CPU usage based on thresholds
+    if (showCPU) {
+        if (cpuUsage > cpuThreshold) {
+            setColor(HIGH_USAGE_COLOR); // Purple for high CPU usage
+        } else {
+            setColor(DEFAULT_COLOR);    // Green for normal CPU usage
+        }
+        sprintf(output + strlen(output), "CPU Usage: %d%%\t\t", cpuUsage);
+    }
+
+    // Set color for RAM usage based on thresholds
+    if (showRAM) {
+        if (ramUsage > ramThreshold) {
+            setColor(HIGH_USAGE_COLOR); // Purple for high RAM usage
+        } else {
+            setColor(DEFAULT_COLOR);    // Green for normal RAM usage
+        }
+        sprintf(output + strlen(output), "RAM Usage: %d%%", ramUsage);
+    }
+
+    // Display centered output with the set color
+    displayCenteredText(output);
+
+    // If either usage is extreme, show critical warning in pink
+    if ((showCPU && cpuUsage > 90) || (showRAM && ramUsage > 95)) {
+        setColor(WARNING_COLOR); // Pink for critical usage
+        displayCenteredText("CRITICAL: System Overload!");
+    }
+
+    // Reset color to default
+    setColor(DEFAULT_COLOR);
+
+    // Handle beeping if thresholds are exceeded
+    alertIfThresholdExceeded(cpuUsage, ramUsage);
+}
+
+// Function to get user preferences
+void getUserPreferences() {
+    printf("0 for No, 1 for Yes: \n");
+    printf("1. Display CPU Usage? ");
+    scanf("%d", &showCPU);
+    printf("2. Display RAM Usage? ");
+    scanf("%d", &showRAM);
+
+    printf("Enable beep alerts? (1 = Yes, 0 = No): ");
+    scanf("%d", &enableBeep);
+
+    if (showCPU) {
+        printf("Set CPU usage threshold for beep: ");
+        scanf("%d", &cpuThreshold);
+    }
+
+    if (showRAM) {
+        printf("Set RAM usage threshold for beep: ");
+        scanf("%d", &ramThreshold);
+    }
+}
+
+int main() {
+    getUserPreferences();
+
+    while (1) {
+        if (_kbhit() && _getch() == 27) break; // ESC key pressed
+
+        system("cls");
+        checkSystemPerformance();
+        Sleep(1000);
+    }
+    return 0;
+}
